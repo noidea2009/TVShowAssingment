@@ -10,6 +10,7 @@ public class TVShow {
     public TVShow(String title, String genre) {
         // TODO: assign fields, create list, totalTime = 0, numShows++
     }
+    public String getTitle(){return this.title;}
 
     public boolean addSeason(int seasonNum) {
         // TODO: reject duplicate season #, keep seasons sorted
