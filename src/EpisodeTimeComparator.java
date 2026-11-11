@@ -6,7 +6,7 @@ public class EpisodeTimeComparator implements Comparator<Episode> {
     }
 
     public int compare(Episode a, Episode b) {
-        // TODO: return a.getLength().compareTo(b.getLength())
-        return 0;
+
+        return a.getLength().compareTo(b.getLength());
     }
 }

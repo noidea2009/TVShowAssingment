@@ -1,7 +1,10 @@
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Scanner;
 import javax.swing.*;
 
@@ -18,10 +21,13 @@ import javax.swing.*;
  * with a header label (NORTH), a text output area (CENTER) and a bottom JPanel
  * (FlowLayout, SOUTH) whose buttons change depending on the menu being shown.
  *
- * NOTE: this class expects TVShow to have a getTitle() method that returns the
- * title of the show.
+ * The buttons all report to actionPerformed, which decides what to run from the
+ * menu currently showing and the number of the button that was pressed.
+ *
+ * Whenever the user must choose or type something, the available TV shows,
+ * seasons or episodes are listed in the dialog so the choices are always clear.
  */
-public class Driver {
+public class Driver implements ActionListener {
     /** The collection of all TV shows. */
     private static ArrayList<TVShow> shows = new ArrayList<TVShow>();
 
@@ -38,6 +44,18 @@ public class Driver {
     /** Text area where all results are displayed. */
     private JTextArea output;
 
+    // ---------- Which menu is showing ----------
+
+    /** Menu identifier: the main menu. */
+    private static final int MAIN_MENU = 0;
+    /** Menu identifier: Menu 1 (the TV shows list). */
+    private static final int SHOWS_MENU = 1;
+    /** Menu identifier: Menu 2 (episodes of one season). */
+    private static final int EPISODE_MENU = 2;
+
+    /** The menu whose buttons are currently displayed. */
+    private int currentMenu = MAIN_MENU;
+
     // ---------- Menu 2 state ----------
 
     /** Index (in the collection) of the show selected for Menu 2. */
@@ -47,9 +65,9 @@ public class Driver {
     /** Season object selected for Menu 2. */
     private Season currentSeason = null;
 
-    //                        
+    //
     //  Constructor -- settings
-    //                        
+    //
 
     /**
      * Builds the main window and displays the main menu.
@@ -97,9 +115,9 @@ public class Driver {
         new Driver();
     }
 
-    //                        
+    //
     //  Menu 1 methods (TV shows list)
-    //                        
+    //
 
     /**
      * Gets the titles of all the TV shows in the collection (Menu 1 #1).
@@ -210,7 +228,8 @@ public class Driver {
     }
 
     /**
-     * Removes an entire TV show from the collection (Menu 1 #4, option A).
+     * Removes an entire TV show from the collection (Menu 1 #4, option A)
+     * and lowers the count of shows kept by TVShow.
      *
      * @param showIndex the index of the show to remove
      * @return true if the show was removed, false if the index is invalid
@@ -220,6 +239,7 @@ public class Driver {
             return false;
         }
         shows.remove(showIndex);
+        TVShow.showRemoved();
         return true;
     }
 
@@ -252,9 +272,9 @@ public class Driver {
         return shows.get(showIndex).getStatus();
     }
 
-    //                        
+    //
     //  Private static helper methods
-    //                        
+    //
 
     /**
      * Checks that an index refers to a show in the collection.
@@ -370,29 +390,153 @@ public class Driver {
         return sb.toString();
     }
 
-    //                        
-    //  Switching menus (rebuilds the buttons in the bottom panel)
-    //                        
+    /**
+     * Builds an indented list from an array of labels that already identify
+     * themselves (for example "Episode 3: Title"), one label per line.
+     *
+     * @param labels the labels to list
+     * @return the list as multi-line text, or "(none yet)" if there are no labels
+     */
+    private static String plainList(String[] labels) {
+        if (labels == null || labels.length == 0) {
+            return "  (none yet)\n";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String label : labels) {
+            sb.append("  ").append(label).append("\n");
+        }
+        return sb.toString();
+    }
 
     /**
-     * Replaces the buttons in the bottom panel with those of a new menu.
+     * Lists the .txt files in the folder the program runs from, so the user
+     * can see which input files are available to read.
      *
-     * @param title   the header text of the menu
-     * @param labels  the text of each button
-     * @param actions the action run by each button (same order as labels)
+     * @return the file names as multi-line text, or a note if none were found
      */
-    private void setMenu(String title, String[] labels, Runnable[] actions) {
+    private static String listTextFiles() {
+        File[] files = new File(".").listFiles();
+        if (files == null) {
+            return "  (no .txt files found in the program's folder)\n";
+        }
+        // Keep only the names that end in .txt
+        ArrayList<String> found = new ArrayList<String>();
+        for (File file : files) {
+            if (file.isFile() && file.getName().toLowerCase().endsWith(".txt")) {
+                found.add(file.getName());
+            }
+        }
+        if (found.isEmpty()) {
+            return "  (no .txt files found in the program's folder)\n";
+        }
+        // Put the names in alphabetical order
+        String[] names = found.toArray(new String[0]);
+        Arrays.sort(names);
+        return plainList(names);
+    }
+
+    //
+    //  Switching menus (rebuilds the buttons in the bottom panel)
+    //
+
+    /**
+     * Replaces the buttons in the bottom panel with those of a new menu. Each
+     * button remembers its position in the menu (as its action command), and
+     * this Driver listens to all of them.
+     *
+     * @param menu   which menu is being shown (MAIN_MENU, SHOWS_MENU or EPISODE_MENU)
+     * @param title  the header text of the menu
+     * @param labels the text of each button, in order
+     */
+    private void setMenu(int menu, String title, String[] labels) {
+        currentMenu = menu;
         header.setText(title);
         bottomPanel.removeAll(); // clear the previous menu's buttons
         for (int i = 0; i < labels.length; i++) {
             JButton button = new JButton(labels[i]);
-            Runnable action = actions[i];
-            button.addActionListener(e -> action.run());
+            button.setActionCommand(String.valueOf(i)); // position of the button
+            button.addActionListener(this);
             bottomPanel.add(button);
         }
         // Refresh the panel so the new buttons appear
         bottomPanel.revalidate();
         bottomPanel.repaint();
+    }
+
+    /**
+     * Runs when any button is pressed. Uses the menu currently showing and the
+     * position of the button to decide which action to carry out.
+     *
+     * @param e the button press
+     */
+    public void actionPerformed(ActionEvent e) {
+        int button = Integer.parseInt(e.getActionCommand());
+        if (currentMenu == MAIN_MENU) {
+            handleMainMenu(button);
+        } else if (currentMenu == SHOWS_MENU) {
+            handleShowsMenu(button);
+        } else {
+            handleEpisodeMenu(button);
+        }
+    }
+
+    /**
+     * Carries out a button of the main menu.
+     *
+     * @param button the position of the button (0 = TV Shows List, 1 = Within a TV Show, 2 = Exit)
+     */
+    private void handleMainMenu(int button) {
+        if (button == 0) {
+            showShowsMenu();
+        } else if (button == 1) {
+            enterEpisodeMenu();
+        } else {
+            exitProgram();
+        }
+    }
+
+    /**
+     * Carries out a button of Menu 1 (the TV shows list).
+     *
+     * @param button the position of the button (0 = Display Shows ... 5 = Main Menu)
+     */
+    private void handleShowsMenu(int button) {
+        if (button == 0) {
+            guiListShows();
+        } else if (button == 1) {
+            guiShowInfo();
+        } else if (button == 2) {
+            guiAddShow();
+        } else if (button == 3) {
+            guiRemove();
+        } else if (button == 4) {
+            guiShowStatus();
+        } else {
+            showMainMenu();
+        }
+    }
+
+    /**
+     * Carries out a button of Menu 2 (episodes of the current season).
+     *
+     * @param button the position of the button (0 = All Episodes ... 6 = Main Menu)
+     */
+    private void handleEpisodeMenu(int button) {
+        if (button == 0) {
+            guiListEpisodes();
+        } else if (button == 1) {
+            guiEpisodeInfo();
+        } else if (button == 2) {
+            guiWatchEpisode();
+        } else if (button == 3) {
+            guiAddEpisode();
+        } else if (button == 4) {
+            guiRemoveEpisodes();
+        } else if (button == 5) {
+            guiSortEpisodes();
+        } else {
+            showMainMenu();
+        }
     }
 
     /**
@@ -403,33 +547,34 @@ public class Driver {
                 + "1) TV Shows List - view, add, remove and check the status of your shows\n"
                 + "2) Within a Show - work with the episodes of one season of one show\n"
                 + "3) Exit");
-        setMenu("Main Menu",
-                new String[] {"TV Shows List", "Within a TV Show", "Exit"},
-                new Runnable[] {this::showShowsMenu, this::enterEpisodeMenu, this::exitProgram});
+        setMenu(MAIN_MENU, "Main Menu",
+                new String[] {"TV Shows List", "Within a TV Show", "Exit"});
     }
 
     /**
      * Displays Menu 1 (the TV shows list).
      */
     private void showShowsMenu() {
-        output.setText("Choose an option below.");
-        setMenu("Your TV Shows",
+        output.setText("Choose an option below.\n\n"
+                + "Display Shows - list every TV show in your collection\n"
+                + "Show Info     - title, genre, seasons, episodes and total time of one show\n"
+                + "Add Show      - read a show from a text file\n"
+                + "Remove        - remove a whole show, or one season of a show\n"
+                + "Show Status   - how much of a show you have watched\n"
+                + "Main Menu     - go back");
+        setMenu(SHOWS_MENU, "Your TV Shows",
                 new String[] {"Display Shows", "Show Info", "Add Show", "Remove",
-                        "Show Status", "Main Menu"},
-                new Runnable[] {this::guiListShows, this::guiShowInfo, this::guiAddShow,
-                        this::guiRemove, this::guiShowStatus, this::showMainMenu});
+                        "Show Status", "Main Menu"});
     }
 
     /**
      * Displays Menu 2 (episodes of the current show and season).
      */
     private void showEpisodeMenu() {
-        setMenu(shows.get(currentShowIndex).getTitle() + " - Season " + currentSeasonNum,
+        setMenu(EPISODE_MENU,
+                shows.get(currentShowIndex).getTitle() + " - Season " + currentSeasonNum,
                 new String[] {"All Episodes", "Episode Info", "Watch", "Add", "Remove",
-                        "Sort", "Main Menu"},
-                new Runnable[] {this::guiListEpisodes, this::guiEpisodeInfo, this::guiWatchEpisode,
-                        this::guiAddEpisode, this::guiRemoveEpisodes, this::guiSortEpisodes,
-                        this::showMainMenu});
+                        "Sort", "Main Menu"});
     }
 
     //  GUI input helpers (all include error checking)
@@ -455,19 +600,21 @@ public class Driver {
     }
 
     /**
-     * Lets the user choose one entry from a numbered list of titles.
+     * Lets the user choose one entry from a drop-down list.
      *
-     * @param titles  the titles to choose from
-     * @param prompt  the question shown to the user
-     * @param heading the dialog title
+     * @param labels   the entries to choose from
+     * @param prompt   the question shown to the user
+     * @param heading  the dialog title
+     * @param numbered true to put 1), 2), 3)... in front of each entry (needed when
+     *                 entries such as show titles can repeat); false when each entry
+     *                 already identifies itself
      * @return the chosen index, or -1 if the user cancelled
      */
-    private int chooseFromList(String[] titles, String prompt, String heading) {
-        String[] options = new String[titles.length];
-        for (int i = 0; i < titles.length; i++) {
-            options[i] = (i + 1) + ") " + titles[i];
+    private int chooseFromList(String[] labels, String prompt, String heading, boolean numbered) {
+        String[] options = new String[labels.length];
+        for (int i = 0; i < labels.length; i++) {
+            options[i] = numbered ? (i + 1) + ") " + labels[i] : labels[i];
         }
-        // Options are numbered, so duplicate titles can still be told apart
         Object choice = JOptionPane.showInputDialog(myFrame, prompt, heading,
                 JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
         if (choice == null) {
@@ -484,30 +631,67 @@ public class Driver {
     /**
      * Lets the user pick a TV show from the collection.
      *
+     * @param prompt the question shown to the user
      * @return the index of the chosen show, or -1 if none exist or the user cancelled
      */
-    private int pickShow() {
+    private int pickShow(String prompt) {
         if (shows.isEmpty()) {
             showError("There are no TV shows in your collection yet.");
             return -1;
         }
-        return chooseFromList(getShowTitles(), "Select a TV show:", "Select TV Show");
+        // Numbered, because duplicate show titles are allowed
+        return chooseFromList(getShowTitles(), prompt, "Select TV Show", true);
     }
 
     /**
-     * Lets the user pick an episode of the current season.
+     * Lets the user pick a season of a show (not including the option to add one).
+     *
+     * @param show   the show whose seasons are listed
+     * @param prompt the question shown to the user
+     * @return the chosen season number, or -1 if the show has no seasons or the user cancelled
+     */
+    private int pickSeason(TVShow show, String prompt) {
+        if (show.getNumSeasons() == 0) {
+            showError("\"" + show.getTitle() + "\" has no seasons yet.");
+            return -1;
+        }
+        int index = chooseFromList(show.getSeasonLabels(), prompt, "Select Season", false);
+        if (index < 0) {
+            return -1;
+        }
+        return show.getSeasonNumbers()[index];
+    }
+
+    /**
+     * Builds a label for each episode of the current season, in the last sorted
+     * order, such as "Episode 3: Title".
+     *
+     * @return the episode labels
+     */
+    private String[] episodeLabels() {
+        String[] titles = currentSeason.getEpisodeTitles();
+        int[] numbers = currentSeason.getEpisodeNumbers();
+        String[] labels = new String[titles.length];
+        for (int i = 0; i < titles.length; i++) {
+            labels[i] = "Episode " + numbers[i] + ": " + titles[i];
+        }
+        return labels;
+    }
+
+    /**
+     * Lets the user pick an episode of the current season from a list.
      *
      * @param prompt the question shown to the user
      * @return the index of the chosen episode, or -1 if the user cancelled
      */
     private int pickEpisode(String prompt) {
-        return chooseFromList(currentSeason.getEpisodeTitles(), prompt, "Select Episode");
+        return chooseFromList(episodeLabels(), prompt, "Select Episode", false);
     }
 
     /**
      * Repeatedly asks for a whole number until a valid one is entered.
      *
-     * @param prompt the question shown to the user
+     * @param prompt the question shown to the user (may list the available choices)
      * @param min    the smallest number allowed
      * @return the number, or null if the user cancelled
      */
@@ -580,36 +764,52 @@ public class Driver {
     }
 
     /**
-     * Main Menu #2: selects a show and season, then opens the episode menu.
-     * If the season does not exist, the user may add it first.
+     * Main Menu #2: selects a show and a season from lists, then opens the
+     * episode menu. The season list also offers "Add a new season", so a new
+     * (empty) season can be created before entering the menu.
      */
     private void enterEpisodeMenu() {
-        int showIndex = pickShow();
+        int showIndex = pickShow("Select the TV show to work with:");
         if (showIndex < 0) {
             return;
         }
-        Integer seasonNum = readInt("Enter the season number:", 1);
-        if (seasonNum == null) {
-            return;
+        TVShow show = shows.get(showIndex);
+
+        // List the existing seasons, plus a last entry for adding a new one
+        String[] seasonLabels = show.getSeasonLabels();
+        String[] options = new String[seasonLabels.length + 1];
+        for (int i = 0; i < seasonLabels.length; i++) {
+            options[i] = seasonLabels[i];
+        }
+        options[seasonLabels.length] = "+ Add a new season";
+
+        int choice = chooseFromList(options,
+                "Select a season of \"" + show.getTitle() + "\":", "Select Season", false);
+        if (choice < 0) {
+            return; // cancelled
         }
 
-        TVShow show = shows.get(showIndex);
-        Season season = show.getSeason(seasonNum);
+        int seasonNum;
+        if (choice == seasonLabels.length) {
+            // The user chose to add a new season: show the numbers already used
+            Integer newNum = readInt("Existing seasons:\n" + plainList(seasonLabels)
+                    + "\nEnter the number of the new season:", 1);
+            if (newNum == null) {
+                return;
+            }
+            if (!show.addSeason(newNum)) {
+                showError("Season " + newNum + " already exists in \"" + show.getTitle() + "\".");
+                return;
+            }
+            seasonNum = newNum;
+        } else {
+            seasonNum = show.getSeasonNumbers()[choice];
+        }
 
-        // Offer to create a new season if it does not exist yet
+        Season season = show.getSeason(seasonNum);
         if (season == null) {
-            if (!confirm("Season " + seasonNum + " does not exist. Add it as a new season?")) {
-                return;
-            }
-            if (!show.addSeason(seasonNum)) {
-                showError("Season " + seasonNum + " could not be added.");
-                return;
-            }
-            season = show.getSeason(seasonNum);
-            if (season == null) {
-                showError("Season " + seasonNum + " could not be found after adding it.");
-                return;
-            }
+            showError("Season " + seasonNum + " could not be found.");
+            return;
         }
 
         currentShowIndex = showIndex;
@@ -642,7 +842,7 @@ public class Driver {
      * Menu 1 #2: displays the information of a chosen TV show.
      */
     private void guiShowInfo() {
-        int index = pickShow();
+        int index = pickShow("Select a TV show to see its information:");
         if (index < 0) {
             return;
         }
@@ -650,16 +850,19 @@ public class Driver {
     }
 
     /**
-     * Menu 1 #3: asks for a file name and adds the TV show stored in it.
+     * Menu 1 #3: lists the available text files, asks for a file name and adds
+     * the TV show stored in it.
      */
     private void guiAddShow() {
-        String fileName = readText("Enter the name of the file to read (e.g. umbrella.txt):");
+        String fileName = readText("Text files available:\n" + listTextFiles()
+                + "\nEnter the name of the file to read (e.g. bossBaby.txt):");
         if (fileName == null) {
             return;
         }
         if (addShow(fileName)) {
             output.setText("\"" + shows.get(shows.size() - 1).getTitle()
-                    + "\" was added to your collection.");
+                    + "\" was added to your collection.\n\nYour TV shows:\n\n"
+                    + numberedList(getShowTitles()));
         } else {
             showError("The file could not be read. Check the name and the file format.");
         }
@@ -667,6 +870,7 @@ public class Driver {
 
     /**
      * Menu 1 #4: removes either a whole TV show or one season of a show.
+     * The shows (and seasons) are listed for the user to choose from.
      */
     private void guiRemove() {
         if (shows.isEmpty()) {
@@ -681,7 +885,8 @@ public class Driver {
             return; // cancelled
         }
 
-        int index = pickShow();
+        int index = pickShow(choice == 0 ? "Select the TV show to remove:"
+                : "Select the TV show to remove a season from:");
         if (index < 0) {
             return;
         }
@@ -690,12 +895,14 @@ public class Driver {
         if (choice == 0) {
             // Option A: remove the whole show
             if (confirm("Remove \"" + title + "\" from your collection?") && removeShow(index)) {
-                output.setText("\"" + title + "\" was removed.");
+                output.setText("\"" + title + "\" was removed.\n\nYour TV shows:\n\n"
+                        + (shows.isEmpty() ? "(none)" : numberedList(getShowTitles())));
             }
         } else {
-            // Option B: remove one season (and all of its episodes)
-            Integer seasonNum = readInt("Enter the season number to remove:", 1);
-            if (seasonNum == null) {
+            // Option B: choose one of the show's seasons from a list
+            int seasonNum = pickSeason(shows.get(index),
+                    "Select the season of \"" + title + "\" to remove:");
+            if (seasonNum < 0) {
                 return;
             }
             if (!confirm("Remove season " + seasonNum + " and all of its episodes from \""
@@ -714,16 +921,16 @@ public class Driver {
      * Menu 1 #5: displays how much of a chosen TV show has been watched.
      */
     private void guiShowStatus() {
-        int index = pickShow();
+        int index = pickShow("Select a TV show to see its watch status:");
         if (index < 0) {
             return;
         }
         output.setText(getShowStatus(index));
     }
 
-    //                        
+    //
     //  GUI actions: Menu 2 (episodes of the current season)
-    //                        
+    //
 
     /**
      * Checks that the current season has at least one episode. The other
@@ -742,14 +949,14 @@ public class Driver {
     }
 
     /**
-     * Menu 2 #1: displays the episode titles in the last sorted order.
+     * Menu 2 #1: displays the episodes (number and title) in the last sorted order.
      */
     private void guiListEpisodes() {
         if (!hasEpisodes(true)) {
             return;
         }
-        output.setText("Episodes (last sorted order):\n\n"
-                + numberedList(currentSeason.getEpisodeTitles()));
+        output.setText("Episodes of " + shows.get(currentShowIndex).getTitle() + ", season "
+                + currentSeasonNum + " (last sorted order):\n\n" + plainList(episodeLabels()));
     }
 
     /**
@@ -759,7 +966,7 @@ public class Driver {
         if (!hasEpisodes(true)) {
             return;
         }
-        int index = pickEpisode("Select an episode:");
+        int index = pickEpisode("Select an episode to see its information:");
         if (index < 0) {
             return;
         }
@@ -783,14 +990,18 @@ public class Driver {
 
     /**
      * Menu 2 #4: asks for a title, episode number and length and adds the
-     * (unwatched) episode to the current season.
+     * (unwatched) episode to the current season. The episodes already in the
+     * season are listed so the user can see which numbers are taken.
      */
     private void guiAddEpisode() {
         String title = readText("Enter the episode title:");
         if (title == null) {
             return;
         }
-        Integer epNum = readInt("Enter the episode number:", 1);
+        // Show the episodes that exist so the user can avoid a duplicate number
+        Integer epNum = readInt("Episodes already in this season:\n"
+                + plainList(hasEpisodes(false) ? episodeLabels() : null)
+                + "\nEnter the episode number (must not already be used):", 1);
         if (epNum == null) {
             return;
         }
@@ -801,8 +1012,8 @@ public class Driver {
 
         // TVShow adds the episode and updates the total times
         if (shows.get(currentShowIndex).addEpisode(currentSeasonNum, title, epNum, time)) {
-            output.setText("Episode " + epNum + " was added.\n\n"
-                    + numberedList(currentSeason.getEpisodeTitles()));
+            output.setText("Episode " + epNum + " was added.\n\nEpisodes:\n\n"
+                    + plainList(episodeLabels()));
         } else {
             showError("Episode number " + epNum + " already exists in this season.");
         }
@@ -810,7 +1021,7 @@ public class Driver {
 
     /**
      * Menu 2 #5: removes episodes by number, by title, by a range, or only
-     * the watched ones.
+     * the watched ones. The episodes are listed for the user to choose from.
      */
     private void guiRemoveEpisodes() {
         if (!hasEpisodes(true)) {
@@ -828,29 +1039,34 @@ public class Driver {
         String result;
 
         if (choice == 0) {
-            // Remove a single episode by its number
-            Integer epNum = readInt("Enter the episode number to remove:", 1);
-            if (epNum == null) {
+            // Pick one episode from the list, then remove it by its episode number
+            int index = pickEpisode("Select the episode to remove:");
+            if (index < 0) {
                 return;
             }
+            int epNum = currentSeason.getEpisodeNumbers()[index];
             result = show.removeEpisodeByNumber(currentSeasonNum, epNum)
                     ? "Episode " + epNum + " was removed."
                     : "Episode " + epNum + " does not exist in this season.";
         } else if (choice == 1) {
-            // Remove every episode with the given title
-            String title = readText("Enter the episode title to remove:");
-            if (title == null) {
+            // Pick an episode from the list; every episode with that title is removed
+            int index = pickEpisode("Select an episode title to remove\n"
+                    + "(ALL episodes with this title in this season will be removed):");
+            if (index < 0) {
                 return;
             }
+            String title = currentSeason.getEpisodeTitles()[index];
             int count = show.removeEpisodesByTitle(currentSeasonNum, title);
             result = count + " episode(s) titled \"" + title + "\" removed.";
         } else if (choice == 2) {
-            // Remove all episodes whose number is within a range
-            Integer from = readInt("Remove from episode #:", 1);
+            // Remove all episodes whose number is within a range; the list is shown first
+            String list = "Episodes in this season:\n" + plainList(episodeLabels());
+            Integer from = readInt(list + "\nRemove from episode #:", 1);
             if (from == null) {
                 return;
             }
-            Integer to = readInt("Remove up to and including episode #:", from);
+            Integer to = readInt(list + "\nRemove up to and including episode # (at least "
+                    + from + "):", from);
             if (to == null) {
                 return;
             }
@@ -867,7 +1083,7 @@ public class Driver {
 
         // Re-display whatever is left in the season
         if (hasEpisodes(false)) {
-            result += "\n\n" + numberedList(currentSeason.getEpisodeTitles());
+            result += "\n\nEpisodes left:\n\n" + plainList(episodeLabels());
         } else {
             result += "\n\nThis season now has no episodes.";
         }
@@ -900,7 +1116,6 @@ public class Driver {
         } else {
             return; // cancelled
         }
-        output.setText("Episodes sorted by " + sortedBy + ":\n\n"
-                + numberedList(currentSeason.getEpisodeTitles()));
+        output.setText("Episodes sorted by " + sortedBy + ":\n\n" + plainList(episodeLabels()));
     }
 }

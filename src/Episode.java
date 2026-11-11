@@ -10,6 +10,7 @@ public class Episode implements Comparable<Episode> {
 
     public int compareTo(Episode other) {
         // TODO: compare by episode number
+
         return 0;
     }
 
@@ -17,6 +18,7 @@ public class Episode implements Comparable<Episode> {
         // TODO: episode #, title, length, watched status
         return "";
     }
+    public int getEpisodeNum() { return episodeNum; }
 
     public String getTitle() {
         // TODO
@@ -25,6 +27,6 @@ public class Episode implements Comparable<Episode> {
 
     public Time getLength() {
         // TODO
-        return null;
+        return this.length;
     }
 }

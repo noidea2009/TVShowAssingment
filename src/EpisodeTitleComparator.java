@@ -6,7 +6,6 @@ public class EpisodeTitleComparator implements Comparator<Episode> {
     }
 
     public int compare(Episode a, Episode b) {
-        // TODO: return a.getTitle().compareToIgnoreCase(b.getTitle())
-        return 0;
+         return a.getTitle().compareToIgnoreCase(b.getTitle());
     }
 }

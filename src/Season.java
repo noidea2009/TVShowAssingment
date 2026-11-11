@@ -6,7 +6,9 @@ public class Season implements Comparable<Season> {
     private Time totalTime;
 
     public Season(int seasonNum) {
-        // TODO: assign seasonNum, create empty list, totalTime = new Time("00:00:00")
+        this.seasonNum=seasonNum;
+        this.episodes = new ArrayList<>();
+        this.totalTime=new Time("00:00:00");
     }
 
     public String[] getEpisodeTitles() {
@@ -15,8 +17,7 @@ public class Season implements Comparable<Season> {
     }
 
     public String getEpisodeInfo(int epIndex) {
-        // TODO: (Menu 2 #2)
-        return null;
+        return episodes.get(epIndex).toString();
     }
 
     public void watchEpisode(int epIndex) {
@@ -72,5 +73,16 @@ public class Season implements Comparable<Season> {
     public int compareTo(Season other) {
         // TODO: compare by seasonNum
         return 0;
+    }
+    public int getSeasonNum() { return seasonNum; }
+    public int getNumEpisodes() { return episodes.size(); }
+    public Time getTotalTime() { return totalTime; }
+    public int[] getEpisodeNumbers() {
+        // episode numbers in the same order as getEpisodeTitles()
+        int[] nums = new int[episodes.size()];
+        for (int i = 0; i < nums.length; i++) {
+            nums[i] = episodes.get(i).getEpisodeNum();
+        }
+        return nums;
     }
 }
