@@ -151,81 +151,122 @@ public class Driver implements ActionListener {
      * (Menu 1 #3). The file format is: title, genre, then for each season
      * "Season #", the number of episodes, and for each episode "Episode #", its
      * title and its length (hh:mm:ss). Seasons and episodes may be in any order.
-     * All episodes are set to unwatched. The show is only added if the whole
-     * file is read successfully.
+     * All episodes are set to unwatched. The whole file is checked before the show
+     * is created, so a bad file never leaves a half-built show in the collection.
      *
      * @param fileName the name of the input file
-     * @return true if the show was read and added, false otherwise
+     * @throws FileNotFoundException     if the file does not exist or cannot be opened
+     * @throws NumberFormatException     if a line that should hold a number does not,
+     *                                   or the number is too large
+     * @throws IndexOutOfBoundsException if the file ends before the show is complete
+     * @throws IllegalArgumentException  if the file does not follow the format: a wrong
+     *                                   label, an invalid time, a season or episode number
+     *                                   below 1, a negative episode count, or a duplicate
+     *                                   season or episode number
      */
-    public static boolean addShow(String fileName) {
-        if (fileName == null || fileName.trim().isEmpty()) {
-            return false;
-        }
-
-        // First pass: read the whole file into temporary storage, so that a
-        // bad file never leaves a half-built show in the collection
+    public static void addShow(String fileName) throws FileNotFoundException {
+        // First pass: read the whole file into temporary storage. The original
+        // line number of every kept line is stored too, so errors can point to it.
         ArrayList<String> lines = new ArrayList<String>();
+        ArrayList<Integer> lineNumbers = new ArrayList<Integer>();
+        // A FileNotFoundException is not caught here: it is passed on to the caller
         try (Scanner in = new Scanner(new File(fileName.trim()))) {
+            int fileLine = 0;
             while (in.hasNextLine()) {
-                String line = in.nextLine().trim();
+                fileLine++;
+                String line = in.nextLine();
+                // Some editors put an invisible marker at the very start of a file
+                if (fileLine == 1 && line.startsWith("\uFEFF")) {
+                    line = line.substring(1);
+                }
+                line = line.trim();
                 if (!line.isEmpty()) { // ignore blank lines
                     lines.add(line);
+                    lineNumbers.add(fileLine);
                 }
             }
-        } catch (FileNotFoundException e) {
-            return false; // file missing or unreadable
         }
 
-        try {
-            String title = lines.get(0);
-            String genre = lines.get(1);
+        String title = getLine(lines, lineNumbers, 0, "the show title");
+        String genre = getLine(lines, lineNumbers, 1, "the genre");
 
-            ArrayList<Integer> seasonNums = new ArrayList<Integer>();
-            // each entry: {season #, episode #, episode title, length}
-            ArrayList<String[]> episodeData = new ArrayList<String[]>();
+        ArrayList<Integer> seasonNums = new ArrayList<Integer>();
+        // each entry: {season #, episode #, episode title, length}
+        ArrayList<String[]> episodeData = new ArrayList<String[]>();
 
-            int pos = 2;
-            while (pos < lines.size()) {
-                int seasonNum = parseLabelledNumber(lines.get(pos++), "Season");
-                int numEpisodes = Integer.parseInt(lines.get(pos++));
-                seasonNums.add(seasonNum);
+        int pos = 2;
+        while (pos < lines.size()) {
+            // Season line, for example "Season 2"
+            int seasonNum = parseLabelledNumber(lines.get(pos), "Season", lineNumbers.get(pos));
+            int seasonLine = lineNumbers.get(pos);
+            pos++;
+            if (seasonNum < 1) {
+                throw new IllegalArgumentException("Line " + seasonLine
+                        + ": the season number must be at least 1, but found " + seasonNum + ".");
+            }
+            if (seasonNums.contains(seasonNum)) {
+                throw new IllegalArgumentException("Line " + seasonLine + ": season "
+                        + seasonNum + " appears more than once in the file.");
+            }
+            seasonNums.add(seasonNum);
 
-                for (int e = 0; e < numEpisodes; e++) {
-                    int epNum = parseLabelledNumber(lines.get(pos++), "Episode");
-                    String epTitle = lines.get(pos++);
-                    String length = lines.get(pos++);
-                    if (!isValidTime(length)) {
-                        return false;
-                    }
-                    episodeData.add(new String[] {String.valueOf(seasonNum),
-                            String.valueOf(epNum), epTitle, length});
+            // Number of episodes in this season
+            String countText = getLine(lines, lineNumbers, pos, "the number of episodes of season " + seasonNum);
+            int numEpisodes = parseNumber(countText, "the number of episodes", lineNumbers.get(pos));
+            if (numEpisodes < 0) {
+                throw new IllegalArgumentException("Line " + lineNumbers.get(pos)
+                        + ": the number of episodes cannot be negative.");
+            }
+            pos++;
+
+            // The episode numbers used so far in this season (to catch duplicates)
+            ArrayList<Integer> usedEpisodeNums = new ArrayList<Integer>();
+            for (int e = 0; e < numEpisodes; e++) {
+                String epLine = getLine(lines, lineNumbers, pos, "episode " + (e + 1) + " of season " + seasonNum);
+                int epLineNum = lineNumbers.get(pos);
+                int epNum = parseLabelledNumber(epLine, "Episode", epLineNum);
+                if (epNum < 1) {
+                    throw new IllegalArgumentException("Line " + epLineNum
+                            + ": the episode number must be at least 1, but found " + epNum + ".");
                 }
-            }
-
-            // Second pass: the file was valid, so build the show
-            TVShow show = new TVShow(title, genre);
-            for (int seasonNum : seasonNums) {
-                show.addSeason(seasonNum); // duplicate seasons are rejected by TVShow
-            }
-            for (String[] data : episodeData) {
-                show.addEpisode(Integer.parseInt(data[0]), data[2],
-                        Integer.parseInt(data[1]), data[3]);
-            }
-            // The file may not be in order, so sort each season by episode #
-            for (int seasonNum : seasonNums) {
-                Season season = show.getSeason(seasonNum);
-                if (season != null) {
-                    season.sortByNumber();
+                if (usedEpisodeNums.contains(epNum)) {
+                    throw new IllegalArgumentException("Line " + epLineNum + ": episode " + epNum
+                            + " appears more than once in season " + seasonNum + ".");
                 }
-            }
+                usedEpisodeNums.add(epNum);
+                pos++;
 
-            shows.add(show);
-            return true;
-        } catch (RuntimeException e) {
-            // missing lines or a number that could not be parsed
-            return false;
+                String epTitle = getLine(lines, lineNumbers, pos, "the title of episode " + epNum);
+                pos++;
+
+                String length = getLine(lines, lineNumbers, pos, "the length of episode " + epNum);
+                checkTime(length, lineNumbers.get(pos));
+                pos++;
+
+                episodeData.add(new String[] {String.valueOf(seasonNum),
+                        String.valueOf(epNum), epTitle, length});
+            }
         }
+
+        // Second pass: the whole file was valid, so build the show
+        TVShow show = new TVShow(title, genre);
+        for (int seasonNum : seasonNums) {
+            show.addSeason(seasonNum);
+        }
+        for (String[] data : episodeData) {
+            show.addEpisode(Integer.parseInt(data[0]), data[2],
+                    Integer.parseInt(data[1]), data[3]);
+        }
+        // The file may not be in order, so sort each season by episode #
+        for (int seasonNum : seasonNums) {
+            Season season = show.getSeason(seasonNum);
+            if (season != null) {
+                season.sortByNumber();
+            }
+        }
+        shows.add(show);
     }
+
 
     /**
      * Removes an entire TV show from the collection (Menu 1 #4, option A)
@@ -362,20 +403,87 @@ public class Driver implements ActionListener {
     }
 
     /**
-     * Parses a line such as "Season 2" or "Episode 5" and returns the number.
+     * Gets the line at a position, or reports that the file ended too early.
      *
-     * @param line   the line to parse
-     * @param prefix the word that must start the line
-     * @return the number after the prefix
-     * @throws IllegalArgumentException if the line does not start with the prefix
+     * @param lines       the non-blank lines of the file
+     * @param lineNumbers the original line number of each entry in lines
+     * @param pos         the position of the line wanted
+     * @param expected    a description of what should be on that line
+     * @return the line at that position
+     * @throws IndexOutOfBoundsException if there is no line at that position
      */
-    private static int parseLabelledNumber(String line, String prefix) {
-        if (!line.toLowerCase().startsWith(prefix.toLowerCase())) {
-            throw new IllegalArgumentException("Expected " + prefix);
+    private static String getLine(ArrayList<String> lines, ArrayList<Integer> lineNumbers,
+                                  int pos, String expected) {
+        if (pos >= lines.size()) {
+            if (lines.isEmpty()) {
+                throw new IndexOutOfBoundsException("The file is empty. Expected " + expected + ".");
+            }
+            throw new IndexOutOfBoundsException("The file ends after line "
+                    + lineNumbers.get(lines.size() - 1) + ", but " + expected + " was expected.");
         }
-        return Integer.parseInt(line.substring(prefix.length()).trim());
+        return lines.get(pos);
     }
 
+    /**
+     * Converts text to a whole number, with an error that names the line.
+     *
+     * @param text    the text to convert
+     * @param what    a description of the number, used in the error message
+     * @param lineNum the line number in the file, used in the error message
+     * @return the number
+     * @throws NumberFormatException if the text is not a valid whole number
+     */
+    private static int parseNumber(String text, String what, int lineNum) {
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (NumberFormatException e) {
+            // Replace Java's generic message with one the user can act on
+            throw new NumberFormatException("Line " + lineNum + ": " + what
+                    + " must be a valid whole number, but found \"" + text.trim() + "\".");
+        }
+    }
+
+    /**
+     * Parses a line such as "Season 2" or "Episode 5" and returns the number.
+     *
+     * @param line    the line to parse
+     * @param prefix  the word that must start the line
+     * @param lineNum the line number in the file, used in error messages
+     * @return the number after the prefix
+     * @throws IllegalArgumentException if the line does not start with the prefix
+     * @throws NumberFormatException    if what follows the prefix is not a whole number
+     */
+    private static int parseLabelledNumber(String line, String prefix, int lineNum) {
+        if (!line.toLowerCase().startsWith(prefix.toLowerCase())) {
+            throw new IllegalArgumentException("Line " + lineNum + ": expected \"" + prefix
+                    + " #\" but found \"" + line + "\".");
+        }
+        return parseNumber(line.substring(prefix.length()), "the " + prefix.toLowerCase() + " number", lineNum);
+    }
+
+    /**
+     * Checks the length of an episode: it must be a valid hh:mm:ss time and the
+     * hours must fit in a number the Time class can store.
+     *
+     * @param time    the text to check
+     * @param lineNum the line number in the file, used in error messages
+     * @throws IllegalArgumentException if the text is not a valid time
+     * @throws NumberFormatException    if the hours are too large
+     */
+    private static void checkTime(String time, int lineNum) {
+        if (!isValidTime(time)) {
+            throw new IllegalArgumentException("Line " + lineNum + ": \"" + time
+                    + "\" is not a valid time. Use hh:mm:ss, with minutes and seconds from 00 to 59.");
+        }
+        // The hours are everything before the first colon
+        String hours = time.trim().substring(0, time.trim().indexOf(':'));
+        try {
+            Integer.parseInt(hours);
+        } catch (NumberFormatException e) {
+            throw new NumberFormatException("Line " + lineNum + ": the hours in \"" + time
+                    + "\" are too large.");
+        }
+    }
     /**
      * Builds a numbered list (1, 2, 3...) from an array of titles.
      *
@@ -851,7 +959,8 @@ public class Driver implements ActionListener {
 
     /**
      * Menu 1 #3: lists the available text files, asks for a file name and adds
-     * the TV show stored in it.
+     * the TV show stored in it. Each kind of problem with the file is caught
+     * separately so the user sees exactly what went wrong.
      */
     private void guiAddShow() {
         String fileName = readText("Text files available:\n" + listTextFiles()
@@ -859,12 +968,21 @@ public class Driver implements ActionListener {
         if (fileName == null) {
             return;
         }
-        if (addShow(fileName)) {
+        try {
+            addShow(fileName);
             output.setText("\"" + shows.get(shows.size() - 1).getTitle()
                     + "\" was added to your collection.\n\nYour TV shows:\n\n"
                     + numberedList(getShowTitles()));
-        } else {
-            showError("The file could not be read. Check the name and the file format.");
+        } catch (FileNotFoundException e) {
+            showError("The file \"" + fileName + "\" could not be found or opened.\n"
+                    + "Check the spelling (include .txt) and that it is in the program's folder.");
+        } catch (NumberFormatException e) {
+            // Must come before IllegalArgumentException, because it is a subclass of it
+            showError("A number in the file is not valid.\n" + e.getMessage());
+        } catch (IndexOutOfBoundsException e) {
+            showError("The file is incomplete.\n" + e.getMessage());
+        } catch (IllegalArgumentException e) {
+            showError("The file is not in the correct format.\n" + e.getMessage());
         }
     }
 
