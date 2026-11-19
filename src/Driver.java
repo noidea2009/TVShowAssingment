@@ -10,7 +10,7 @@ import javax.swing.*;
 
 /**
  * Driver.java
- * Name: (your name)
+ * Name: junjit chang
  *
  * Contains the main program for the "My TV Shows Collection" assignment.
  * It holds the ArrayList of TVShow objects, the static methods that carry out
@@ -31,7 +31,7 @@ public class Driver implements ActionListener {
     /** The collection of all TV shows. */
     private static ArrayList<TVShow> shows = new ArrayList<TVShow>();
 
-    // ---------- GUI components ----------
+    //  GUI components
 
     /** The main window. */
     private JFrame myFrame;
@@ -44,7 +44,7 @@ public class Driver implements ActionListener {
     /** Text area where all results are displayed. */
     private JTextArea output;
 
-    // ---------- Which menu is showing ----------
+    //  Which menu is showing
 
     /** Menu identifier: the main menu. */
     private static final int MAIN_MENU = 0;
@@ -56,7 +56,7 @@ public class Driver implements ActionListener {
     /** The menu whose buttons are currently displayed. */
     private int currentMenu = MAIN_MENU;
 
-    // ---------- Menu 2 state ----------
+    //  Menu 2 state
 
     /** Index (in the collection) of the show selected for Menu 2. */
     private int currentShowIndex = -1;
@@ -66,7 +66,7 @@ public class Driver implements ActionListener {
     private Season currentSeason = null;
 
     //
-    //  Constructor -- settings
+    //  Constructor  settings
     //
 
     /**

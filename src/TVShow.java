@@ -3,7 +3,7 @@ import java.util.Collections;
 
 /**
  * TVShow.java
- * Name: (your name)
+ * Name: Junjit Chang
  *
  * A TVShow has a title, a genre, a list of Season objects (kept sorted by season
  * number so they can be binary searched) and the total length of all of its
