@@ -84,12 +84,13 @@ public class Episode implements Comparable<Episode> {
     }
 
     /**
-     * Gets the length of the episode.
+     * Gets the length of the episode. A copy is returned so other classes
+     * cannot change the episode's own length by accident.
      *
-     * @return the length as a Time
+     * @return a copy of the length as a Time
      */
     public Time getLength() {
-        return this.length;
+        return new Time(length.toString());
     }
 
     /**

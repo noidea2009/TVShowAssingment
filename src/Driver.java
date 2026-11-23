@@ -24,8 +24,14 @@ import javax.swing.*;
  * The buttons all report to actionPerformed, which decides what to run from the
  * menu currently showing and the number of the button that was pressed.
  *
- * Whenever the user must choose or type something, the available TV shows,
- * seasons or episodes are listed in the dialog so the choices are always clear.
+ * Whenever the user must select a TV show, season or episode, the choices are
+ * listed in the dialog (in a scrollable box, so long lists still fit) and the user
+ * types either the number or the name of the one they want.
+ *
+ * Menu 2 asks for the show and season once, right before it opens, and stays with
+ * them until the user returns to the main menu. A season with no episodes does not
+ * exist, so it is removed when its last episode is removed or when Menu 2 is left
+ * without any episode having been added to it.
  */
 public class Driver implements ActionListener {
     /** The collection of all TV shows. */
@@ -52,6 +58,9 @@ public class Driver implements ActionListener {
     private static final int SHOWS_MENU = 1;
     /** Menu identifier: Menu 2 (episodes of one season). */
     private static final int EPISODE_MENU = 2;
+
+    /** The most digits allowed in the hours of a time (so hours never exceed 9999). */
+    private static final int MAX_HOUR_DIGITS = 4;
 
     /** The menu whose buttons are currently displayed. */
     private int currentMenu = MAIN_MENU;
@@ -151,8 +160,10 @@ public class Driver implements ActionListener {
      * (Menu 1 #3). The file format is: title, genre, then for each season
      * "Season #", the number of episodes, and for each episode "Episode #", its
      * title and its length (hh:mm:ss). Seasons and episodes may be in any order.
-     * All episodes are set to unwatched. The whole file is checked before the show
-     * is created, so a bad file never leaves a half-built show in the collection.
+     * All episodes are set to unwatched. A season that lists 0 episodes is not
+     * added, because a season with no episodes does not exist. The whole file is
+     * checked before the show is created, so a bad file never leaves a half-built
+     * show in the collection.
      *
      * @param fileName the name of the input file
      * @throws FileNotFoundException     if the file does not exist or cannot be opened
@@ -250,17 +261,18 @@ public class Driver implements ActionListener {
 
         // Second pass: the whole file was valid, so build the show
         TVShow show = new TVShow(title, genre);
-        for (int seasonNum : seasonNums) {
-            show.addSeason(seasonNum);
-        }
         for (String[] data : episodeData) {
-            show.addEpisode(Integer.parseInt(data[0]), data[2],
-                    Integer.parseInt(data[1]), data[3]);
+            int seasonNum = Integer.parseInt(data[0]);
+            // A season is only created when it has an episode, so empty seasons never exist
+            if (show.getSeason(seasonNum) == null) {
+                show.addSeason(seasonNum);
+            }
+            show.addEpisode(seasonNum, data[2], Integer.parseInt(data[1]), data[3]);
         }
         // The file may not be in order, so sort each season by episode #
         for (int seasonNum : seasonNums) {
             Season season = show.getSeason(seasonNum);
-            if (season != null) {
+            if (season != null) { // null for a season that listed no episodes
                 season.sortByNumber();
             }
         }
@@ -329,8 +341,8 @@ public class Driver implements ActionListener {
 
     /**
      * Checks whether a string is a valid time in the format h:mm:ss, where the
-     * hours can be any number of digits, and the minutes and seconds are
-     * exactly two digits each, from 00 to 59.
+     * hours are a number from 0 to 9999 (any number of leading zeros), and the
+     * minutes and seconds are exactly two digits each, from 00 to 59.
      *
      * @param time the string to check (may be null)
      * @return true if the string is a valid time, false otherwise
@@ -359,13 +371,29 @@ public class Driver implements ActionListener {
         String minutes = time.substring(firstColon + 1, secondColon);
         String seconds = time.substring(secondColon + 1);
 
-        // Hours: at least one digit, digits only
-        if (hours.length() == 0 || !allDigits(hours)) {
+        // Hours: at least one digit, digits only, and small enough to store and add safely
+        if (hours.length() == 0 || !allDigits(hours) || !hoursFit(hours)) {
             return false;
         }
 
         // Minutes and seconds: exactly two digits, and no more than 59
         return isValidSixty(minutes) && isValidSixty(seconds);
+    }
+
+    /**
+     * Checks that the hours are small enough to store and to add together
+     * without overflowing (at most MAX_HOUR_DIGITS digits, ignoring leading zeros).
+     *
+     * @param hours the hours text (digits only)
+     * @return true if the hours are at most 9999
+     */
+    private static boolean hoursFit(String hours) {
+        // Skip leading zeros so "00012" still counts as 12
+        int start = 0;
+        while (start < hours.length() - 1 && hours.charAt(start) == '0') {
+            start++;
+        }
+        return hours.length() - start <= MAX_HOUR_DIGITS;
     }
 
     /**
@@ -462,28 +490,21 @@ public class Driver implements ActionListener {
     }
 
     /**
-     * Checks the length of an episode: it must be a valid hh:mm:ss time and the
-     * hours must fit in a number the Time class can store.
+     * Checks the length of an episode: it must be a valid hh:mm:ss time
+     * (hours up to 9999, minutes and seconds from 00 to 59).
      *
      * @param time    the text to check
      * @param lineNum the line number in the file, used in error messages
      * @throws IllegalArgumentException if the text is not a valid time
-     * @throws NumberFormatException    if the hours are too large
      */
     private static void checkTime(String time, int lineNum) {
         if (!isValidTime(time)) {
             throw new IllegalArgumentException("Line " + lineNum + ": \"" + time
-                    + "\" is not a valid time. Use hh:mm:ss, with minutes and seconds from 00 to 59.");
-        }
-        // The hours are everything before the first colon
-        String hours = time.trim().substring(0, time.trim().indexOf(':'));
-        try {
-            Integer.parseInt(hours);
-        } catch (NumberFormatException e) {
-            throw new NumberFormatException("Line " + lineNum + ": the hours in \"" + time
-                    + "\" are too large.");
+                    + "\" is not a valid time. Use hh:mm:ss, with hours from 0 to 9999 and"
+                    + " minutes and seconds from 00 to 59.");
         }
     }
+
     /**
      * Builds a numbered list (1, 2, 3...) from an array of titles.
      *
@@ -643,7 +664,7 @@ public class Driver implements ActionListener {
         } else if (button == 5) {
             guiSortEpisodes();
         } else {
-            showMainMenu();
+            leaveEpisodeMenu("");
         }
     }
 
@@ -651,7 +672,17 @@ public class Driver implements ActionListener {
      * Displays the main menu.
      */
     private void showMainMenu() {
-        output.setText("Welcome to My TV Shows Collection!\n\n"
+        showMainMenu("");
+    }
+
+    /**
+     * Displays the main menu, with an optional note above the menu text.
+     *
+     * @param note a message to show first (for example what just happened), or "" for none
+     */
+    private void showMainMenu(String note) {
+        output.setText((note.isEmpty() ? "" : note + "\n\n")
+                + "Welcome to My TV Shows Collection!\n\n"
                 + "1) TV Shows List - view, add, remove and check the status of your shows\n"
                 + "2) Within a Show - work with the episodes of one season of one show\n"
                 + "3) Exit");
@@ -685,6 +716,24 @@ public class Driver implements ActionListener {
                         "Sort", "Main Menu"});
     }
 
+    /**
+     * Leaves Menu 2 and returns to the main menu. A season with no episodes does
+     * not exist, so if the current season is empty (for example a new season that
+     * never got an episode) it is removed from its show first.
+     *
+     * @param note a message to show above the main menu, or "" for none
+     */
+    private void leaveEpisodeMenu(String note) {
+        if (currentShowIndex >= 0 && shows.get(currentShowIndex).removeSeasonIfEmpty(currentSeasonNum)) {
+            note = "Season " + currentSeasonNum + " has no episodes, so it was not kept.";
+        }
+        // Forget the selection: the next visit to Menu 2 asks again
+        currentShowIndex = -1;
+        currentSeasonNum = -1;
+        currentSeason = null;
+        showMainMenu(note);
+    }
+
     //  GUI input helpers (all include error checking)
 
     /**
@@ -708,36 +757,97 @@ public class Driver implements ActionListener {
     }
 
     /**
-     * Lets the user choose one entry from a drop-down list.
+     * Builds the content of an input dialog that shows a list: a line of text above,
+     * the list in a read-only scrollable box (so long lists never push the input
+     * field off the screen), and a line of text below.
      *
-     * @param labels   the entries to choose from
-     * @param prompt   the question shown to the user
-     * @param heading  the dialog title
-     * @param numbered true to put 1), 2), 3)... in front of each entry (needed when
-     *                 entries such as show titles can repeat); false when each entry
-     *                 already identifies itself
-     * @return the chosen index, or -1 if the user cancelled
+     * @param top      the text shown above the list
+     * @param listText the list to display, one entry per line
+     * @param bottom   the text shown below the list (the question)
+     * @return the dialog content, ready to pass to JOptionPane
      */
-    private int chooseFromList(String[] labels, String prompt, String heading, boolean numbered) {
-        String[] options = new String[labels.length];
-        for (int i = 0; i < labels.length; i++) {
-            options[i] = numbered ? (i + 1) + ") " + labels[i] : labels[i];
-        }
-        Object choice = JOptionPane.showInputDialog(myFrame, prompt, heading,
-                JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
-        if (choice == null) {
-            return -1;
-        }
-        for (int i = 0; i < options.length; i++) {
-            if (options[i].equals(choice)) {
-                return i;
-            }
-        }
-        return -1;
+    private Object[] withList(String top, String listText, String bottom) {
+        String text = listText.trim();
+        // Show up to 12 lines at once; longer lists scroll
+        int lineCount = text.split("\n").length;
+        int rows = Math.min(Math.max(lineCount, 3), 12);
+        JTextArea area = new JTextArea(text, rows, 45);
+        area.setEditable(false);
+        area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+        area.setCaretPosition(0); // start at the top of the list
+        return new Object[] {top, new JScrollPane(area), bottom};
     }
 
     /**
-     * Lets the user pick a TV show from the collection.
+     * Shows a list and asks the user to type the number or the name of the entry
+     * they want. Asks again until the answer matches an entry or the user cancels.
+     * A number is tried first; if the answer is not one of the numbers, it is
+     * compared (ignoring upper/lower case) to the names.
+     *
+     * @param top         the text shown above the list
+     * @param listText    the list to display
+     * @param bottom      the question shown under the list
+     * @param numbers     the number the user types for each entry
+     * @param names       the name of each entry, or null if entries can only be chosen by number
+     * @param firstMatchOk true if several entries sharing a name is fine (the first one is
+     *                    used), false to ask the user to type the number instead
+     * @return the position of the chosen entry in the arrays, or -1 if the user cancelled
+     */
+    private int selectItem(String top, String listText, String bottom,
+                           int[] numbers, String[] names, boolean firstMatchOk) {
+        while (true) {
+            String input = JOptionPane.showInputDialog(myFrame, withList(top, listText, bottom),
+                    "Select", JOptionPane.QUESTION_MESSAGE);
+            if (input == null) {
+                return -1; // cancelled
+            }
+            input = input.trim();
+            if (input.isEmpty()) {
+                showError("Please type a number or a name from the list.");
+                continue;
+            }
+
+            // First try the input as a number
+            try {
+                int value = Integer.parseInt(input);
+                for (int i = 0; i < numbers.length; i++) {
+                    if (numbers[i] == value) {
+                        return i;
+                    }
+                }
+            } catch (NumberFormatException e) {
+                // Not a number: it may still be a name, so carry on below
+            }
+
+            // Then try the input as a name
+            int found = -1;
+            int matches = 0;
+            if (names != null) {
+                for (int i = 0; i < names.length; i++) {
+                    if (names[i].equalsIgnoreCase(input)) {
+                        if (matches == 0) {
+                            found = i;
+                        }
+                        matches++;
+                    }
+                }
+            }
+            if (matches == 1 || (matches > 1 && firstMatchOk)) {
+                return found;
+            }
+            if (matches > 1) {
+                showError("More than one entry is called \"" + input + "\".\n"
+                        + "Please type its number instead.");
+            } else {
+                showError("\"" + input + "\" is not in the list.\n"
+                        + "Type one of the numbers" + (names != null ? " or names" : "")
+                        + " shown.");
+            }
+        }
+    }
+
+    /**
+     * Lists all the TV shows and lets the user pick one by typing its number or title.
      *
      * @param prompt the question shown to the user
      * @return the index of the chosen show, or -1 if none exist or the user cancelled
@@ -747,12 +857,18 @@ public class Driver implements ActionListener {
             showError("There are no TV shows in your collection yet.");
             return -1;
         }
-        // Numbered, because duplicate show titles are allowed
-        return chooseFromList(getShowTitles(), prompt, "Select TV Show", true);
+        // The number typed for each show is its position in the list (1, 2, 3...)
+        int[] numbers = new int[shows.size()];
+        for (int i = 0; i < numbers.length; i++) {
+            numbers[i] = i + 1;
+        }
+        // Duplicate show titles are allowed, so a repeated title must be chosen by number
+        return selectItem(prompt, numberedList(getShowTitles()),
+                "Type the number or the title of the show:", numbers, getShowTitles(), false);
     }
 
     /**
-     * Lets the user pick a season of a show (not including the option to add one).
+     * Lists the seasons of a show and lets the user pick one by typing its number.
      *
      * @param show   the show whose seasons are listed
      * @param prompt the question shown to the user
@@ -763,11 +879,13 @@ public class Driver implements ActionListener {
             showError("\"" + show.getTitle() + "\" has no seasons yet.");
             return -1;
         }
-        int index = chooseFromList(show.getSeasonLabels(), prompt, "Select Season", false);
+        int[] seasonNumbers = show.getSeasonNumbers();
+        int index = selectItem(prompt, plainList(show.getSeasonLabels()),
+                "Type the season number:", seasonNumbers, null, false);
         if (index < 0) {
             return -1;
         }
-        return show.getSeasonNumbers()[index];
+        return seasonNumbers[index];
     }
 
     /**
@@ -787,23 +905,28 @@ public class Driver implements ActionListener {
     }
 
     /**
-     * Lets the user pick an episode of the current season from a list.
+     * Lists the episodes of the current season and lets the user pick one by
+     * typing its episode number or its title.
      *
-     * @param prompt the question shown to the user
-     * @return the index of the chosen episode, or -1 if the user cancelled
+     * @param prompt       the question shown to the user
+     * @param firstMatchOk true if several episodes sharing a title is fine (used when
+     *                     every episode with that title will be removed anyway)
+     * @return the position of the chosen episode in the current order, or -1 if the user cancelled
      */
-    private int pickEpisode(String prompt) {
-        return chooseFromList(episodeLabels(), prompt, "Select Episode", false);
+    private int pickEpisode(String prompt, boolean firstMatchOk) {
+        return selectItem(prompt, plainList(episodeLabels()),
+                "Type the episode number or the title:", currentSeason.getEpisodeNumbers(),
+                currentSeason.getEpisodeTitles(), firstMatchOk);
     }
 
     /**
      * Repeatedly asks for a whole number until a valid one is entered.
      *
-     * @param prompt the question shown to the user (may list the available choices)
+     * @param prompt the question shown to the user (text, or the content from withList)
      * @param min    the smallest number allowed
      * @return the number, or null if the user cancelled
      */
-    private Integer readInt(String prompt, int min) {
+    private Integer readInt(Object prompt, int min) {
         while (true) {
             String input = JOptionPane.showInputDialog(myFrame, prompt);
             if (input == null) {
@@ -855,7 +978,8 @@ public class Driver implements ActionListener {
             if (isValidTime(input)) {
                 return input.trim();
             }
-            showError("Please use the format hh:mm:ss (e.g. 00:47:23).");
+            showError("Please use the format hh:mm:ss (e.g. 00:47:23).\n"
+                    + "Hours can be 0 to 9999; minutes and seconds must be 00 to 59.");
         }
     }
 
@@ -872,9 +996,10 @@ public class Driver implements ActionListener {
     }
 
     /**
-     * Main Menu #2: selects a show and a season from lists, then opens the
-     * episode menu. The season list also offers "Add a new season", so a new
-     * (empty) season can be created before entering the menu.
+     * Main Menu #2: asks once for a show and a season (the user types the number or
+     * name from the lists), then opens the episode menu and stays with that show and
+     * season until the user returns to the main menu. The season list also offers
+     * 0 to add a new (empty) season, which only stays if an episode is added to it.
      */
     private void enterEpisodeMenu() {
         int showIndex = pickShow("Select the TV show to work with:");
@@ -883,25 +1008,27 @@ public class Driver implements ActionListener {
         }
         TVShow show = shows.get(showIndex);
 
-        // List the existing seasons, plus a last entry for adding a new one
+        // List the existing seasons; typing 0 adds a new one
         String[] seasonLabels = show.getSeasonLabels();
-        String[] options = new String[seasonLabels.length + 1];
-        for (int i = 0; i < seasonLabels.length; i++) {
-            options[i] = seasonLabels[i];
+        int[] existing = show.getSeasonNumbers();
+        int[] numbers = new int[existing.length + 1];
+        for (int i = 0; i < existing.length; i++) {
+            numbers[i] = existing[i];
         }
-        options[seasonLabels.length] = "+ Add a new season";
+        numbers[existing.length] = 0; // the last entry stands for "add a new season"
 
-        int choice = chooseFromList(options,
-                "Select a season of \"" + show.getTitle() + "\":", "Select Season", false);
+        int choice = selectItem("Seasons of \"" + show.getTitle() + "\":",
+                plainList(seasonLabels) + "  0 = add a new season",
+                "Type the season number (or 0 to add a new season):", numbers, null, false);
         if (choice < 0) {
             return; // cancelled
         }
 
         int seasonNum;
-        if (choice == seasonLabels.length) {
+        if (choice == existing.length) {
             // The user chose to add a new season: show the numbers already used
-            Integer newNum = readInt("Existing seasons:\n" + plainList(seasonLabels)
-                    + "\nEnter the number of the new season:", 1);
+            Integer newNum = readInt(withList("Existing seasons:", plainList(seasonLabels),
+                    "Enter the number of the new season:"), 1);
             if (newNum == null) {
                 return;
             }
@@ -911,7 +1038,7 @@ public class Driver implements ActionListener {
             }
             seasonNum = newNum;
         } else {
-            seasonNum = show.getSeasonNumbers()[choice];
+            seasonNum = existing[choice];
         }
 
         Season season = show.getSeason(seasonNum);
@@ -947,7 +1074,7 @@ public class Driver implements ActionListener {
     }
 
     /**
-     * Menu 1 #2: displays the information of a chosen TV show.
+     * Menu 1 #2: lists the shows and displays the information of the chosen one.
      */
     private void guiShowInfo() {
         int index = pickShow("Select a TV show to see its information:");
@@ -1017,7 +1144,7 @@ public class Driver implements ActionListener {
                         + (shows.isEmpty() ? "(none)" : numberedList(getShowTitles())));
             }
         } else {
-            // Option B: choose one of the show's seasons from a list
+            // Option B: choose one of the show's seasons from the list
             int seasonNum = pickSeason(shows.get(index),
                     "Select the season of \"" + title + "\" to remove:");
             if (seasonNum < 0) {
@@ -1036,7 +1163,7 @@ public class Driver implements ActionListener {
     }
 
     /**
-     * Menu 1 #5: displays how much of a chosen TV show has been watched.
+     * Menu 1 #5: lists the shows and displays how much of the chosen one has been watched.
      */
     private void guiShowStatus() {
         int index = pickShow("Select a TV show to see its watch status:");
@@ -1078,13 +1205,13 @@ public class Driver implements ActionListener {
     }
 
     /**
-     * Menu 2 #2: displays the information of a chosen episode.
+     * Menu 2 #2: lists the episodes and displays the information of the chosen one.
      */
     private void guiEpisodeInfo() {
         if (!hasEpisodes(true)) {
             return;
         }
-        int index = pickEpisode("Select an episode to see its information:");
+        int index = pickEpisode("Select an episode to see its information:", false);
         if (index < 0) {
             return;
         }
@@ -1092,13 +1219,13 @@ public class Driver implements ActionListener {
     }
 
     /**
-     * Menu 2 #3: marks a chosen episode as watched.
+     * Menu 2 #3: lists the episodes and marks the chosen one as watched.
      */
     private void guiWatchEpisode() {
         if (!hasEpisodes(true)) {
             return;
         }
-        int index = pickEpisode("Which episode did you watch?");
+        int index = pickEpisode("Which episode did you watch?", false);
         if (index < 0) {
             return;
         }
@@ -1109,7 +1236,8 @@ public class Driver implements ActionListener {
     /**
      * Menu 2 #4: asks for a title, episode number and length and adds the
      * (unwatched) episode to the current season. The episodes already in the
-     * season are listed so the user can see which numbers are taken.
+     * season are listed so the user can see which numbers are taken, and a
+     * number that is already used is rejected right away.
      */
     private void guiAddEpisode() {
         String title = readText("Enter the episode title:");
@@ -1117,10 +1245,15 @@ public class Driver implements ActionListener {
             return;
         }
         // Show the episodes that exist so the user can avoid a duplicate number
-        Integer epNum = readInt("Episodes already in this season:\n"
-                + plainList(hasEpisodes(false) ? episodeLabels() : null)
-                + "\nEnter the episode number (must not already be used):", 1);
+        Integer epNum = readInt(withList("Episodes already in this season:",
+                plainList(hasEpisodes(false) ? episodeLabels() : null),
+                "Enter the episode number (must not already be used):"), 1);
         if (epNum == null) {
+            return;
+        }
+        // Check the number now, so the user does not have to type the length first
+        if (currentSeason.hasEpisodeNumber(epNum)) {
+            showError("Episode number " + epNum + " already exists in this season.");
             return;
         }
         String time = readTime("Enter the episode length (hh:mm:ss):");
@@ -1130,7 +1263,7 @@ public class Driver implements ActionListener {
 
         // TVShow adds the episode and updates the total times
         if (shows.get(currentShowIndex).addEpisode(currentSeasonNum, title, epNum, time)) {
-            output.setText("Episode " + epNum + " was added.\n\nEpisodes:\n\n"
+            output.setText("Episode " + epNum + " was added.\n\nEpisodes (last sorted order):\n\n"
                     + plainList(episodeLabels()));
         } else {
             showError("Episode number " + epNum + " already exists in this season.");
@@ -1140,6 +1273,8 @@ public class Driver implements ActionListener {
     /**
      * Menu 2 #5: removes episodes by number, by title, by a range, or only
      * the watched ones. The episodes are listed for the user to choose from.
+     * If the season has no episodes left afterwards, it no longer exists, so
+     * the program returns to the main menu.
      */
     private void guiRemoveEpisodes() {
         if (!hasEpisodes(true)) {
@@ -1158,7 +1293,7 @@ public class Driver implements ActionListener {
 
         if (choice == 0) {
             // Pick one episode from the list, then remove it by its episode number
-            int index = pickEpisode("Select the episode to remove:");
+            int index = pickEpisode("Select the episode to remove:", false);
             if (index < 0) {
                 return;
             }
@@ -1169,7 +1304,7 @@ public class Driver implements ActionListener {
         } else if (choice == 1) {
             // Pick an episode from the list; every episode with that title is removed
             int index = pickEpisode("Select an episode title to remove\n"
-                    + "(ALL episodes with this title in this season will be removed):");
+                    + "(ALL episodes with this title in this season will be removed):", true);
             if (index < 0) {
                 return;
             }
@@ -1178,18 +1313,21 @@ public class Driver implements ActionListener {
             result = count + " episode(s) titled \"" + title + "\" removed.";
         } else if (choice == 2) {
             // Remove all episodes whose number is within a range; the list is shown first
-            String list = "Episodes in this season:\n" + plainList(episodeLabels());
-            Integer from = readInt(list + "\nRemove from episode #:", 1);
+            String list = plainList(episodeLabels());
+            Integer from = readInt(withList("Episodes in this season:", list,
+                    "Remove from episode #:"), 1);
             if (from == null) {
                 return;
             }
-            Integer to = readInt(list + "\nRemove up to and including episode # (at least "
-                    + from + "):", from);
+            Integer to = readInt(withList("Episodes in this season:", list,
+                    "Remove up to and including episode # (at least " + from + "):"), from);
             if (to == null) {
                 return;
             }
             int count = show.removeEpisodeRange(currentSeasonNum, from, to);
-            result = count + " episode(s) removed (episodes " + from + " to " + to + ").";
+            result = count == 0
+                    ? "No episodes were found from episode " + from + " to " + to + "."
+                    : count + " episode(s) removed (episodes " + from + " to " + to + ").";
         } else {
             // Remove only the episodes that were already watched
             if (!confirm("Remove all watched episodes from this season?")) {
@@ -1199,13 +1337,16 @@ public class Driver implements ActionListener {
             result = count + " watched episode(s) removed.";
         }
 
-        // Re-display whatever is left in the season
-        if (hasEpisodes(false)) {
-            result += "\n\nEpisodes left:\n\n" + plainList(episodeLabels());
-        } else {
-            result += "\n\nThis season now has no episodes.";
+        // A season with no episodes does not exist (TVShow already removed it)
+        if (show.getSeason(currentSeasonNum) == null) {
+            leaveEpisodeMenu(result + "\n\nSeason " + currentSeasonNum
+                    + " has no episodes left, so it no longer exists.\n"
+                    + "Returning to the main menu.");
+            return;
         }
-        output.setText(result);
+
+        // Otherwise re-display whatever is left in the season
+        output.setText(result + "\n\nEpisodes left:\n\n" + plainList(episodeLabels()));
     }
 
     /**

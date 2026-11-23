@@ -8,6 +8,7 @@ import java.util.Collections;
  * A TVShow has a title, a genre, a list of Season objects (kept sorted by season
  * number so they can be binary searched) and the total length of all of its
  * episodes. A class variable keeps track of how many TV shows are in the collection.
+ * A season that has no episodes left does not exist, so it is removed automatically.
  */
 public class TVShow {
     /** The title of the show. */
@@ -76,7 +77,8 @@ public class TVShow {
 
     /**
      * Adds a new, empty season. Duplicate season numbers are rejected, and the
-     * list of seasons is kept sorted by season number.
+     * list of seasons is kept sorted by season number. The season is only
+     * kept while it has episodes (see removeSeasonIfEmpty).
      *
      * @param seasonNum the number of the new season
      * @return true if the season was added, false if the number is invalid or already exists
@@ -108,6 +110,21 @@ public class TVShow {
         seasons.remove(index);
         updateTotalTime();
         return true;
+    }
+
+    /**
+     * Removes a season only if it has no episodes, because a season with
+     * no episodes does not exist.
+     *
+     * @param seasonNum the number of the season to check
+     * @return true if the season existed, was empty and was removed; false otherwise
+     */
+    public boolean removeSeasonIfEmpty(int seasonNum) {
+        Season season = getSeason(seasonNum);
+        if (season == null || season.getNumEpisodes() > 0) {
+            return false;
+        }
+        return removeSeason(seasonNum);
     }
 
     /**
@@ -273,7 +290,8 @@ public class TVShow {
     }
 
     /**
-     * Removes the episode with the given number from a season and updates the total time.
+     * Removes the episode with the given number from a season and updates the total
+     * time. If that was the last episode, the season is removed too.
      *
      * @param seasonNum the season to remove from
      * @param epNum     the episode number to remove
@@ -286,12 +304,14 @@ public class TVShow {
         }
         boolean removed = season.removeByNumber(epNum);
         updateTotalTime();
+        removeSeasonIfEmpty(seasonNum);
         return removed;
     }
 
     /**
      * Removes every episode with the given title from a season (not the whole
-     * show) and updates the total time.
+     * show) and updates the total time. If the season runs out of episodes,
+     * it is removed too.
      *
      * @param seasonNum the season to remove from
      * @param title     the episode title to remove
@@ -304,12 +324,14 @@ public class TVShow {
         }
         int count = season.removeByTitle(title);
         updateTotalTime();
+        removeSeasonIfEmpty(seasonNum);
         return count;
     }
 
     /**
      * Removes all episodes whose number is in a range (inclusive) from a season
-     * and updates the total time.
+     * and updates the total time. If the season runs out of episodes, it is
+     * removed too.
      *
      * @param seasonNum the season to remove from
      * @param fromEp    the first episode number of the range
@@ -323,11 +345,13 @@ public class TVShow {
         }
         int count = season.removeRange(fromEp, toEp);
         updateTotalTime();
+        removeSeasonIfEmpty(seasonNum);
         return count;
     }
 
     /**
      * Removes all the watched episodes from a season and updates the total time.
+     * If the season runs out of episodes, it is removed too.
      *
      * @param seasonNum the season to remove from
      * @return the number of episodes removed
@@ -339,6 +363,7 @@ public class TVShow {
         }
         int count = season.removeWatched();
         updateTotalTime();
+        removeSeasonIfEmpty(seasonNum);
         return count;
     }
 }

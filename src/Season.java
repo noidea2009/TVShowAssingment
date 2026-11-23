@@ -8,17 +8,25 @@ import java.util.Collections;
  * A Season has a season number, a list of Episode objects and the total
  * length of all of its episodes. Duplicate episode numbers are not allowed.
  * Whenever the episodes are in episode-number order, a binary search is used
- * to find them.
+ * to find them. The season remembers how it was last sorted, so a newly added
+ * episode is always placed to keep that order.
  */
 public class Season implements Comparable<Season> {
+    /** Sort mode: the episodes are sorted by episode number. */
+    private static final int SORT_NUMBER = 0;
+    /** Sort mode: the episodes are sorted by title. */
+    private static final int SORT_TITLE = 1;
+    /** Sort mode: the episodes are sorted by length. */
+    private static final int SORT_TIME = 2;
+
     /** The season number. */
     private int seasonNum;
     /** The episodes of the season, in the last sorted order. */
     private ArrayList<Episode> episodes;
     /** The total length of all the episodes in the season. */
     private Time totalTime;
-    /** True while the episodes are sorted by episode number (so binary search works). */
-    private boolean sortedByNumber;
+    /** How the episodes were last sorted (SORT_NUMBER, SORT_TITLE or SORT_TIME). */
+    private int sortMode;
 
     /**
      * Creates an empty season.
@@ -29,7 +37,7 @@ public class Season implements Comparable<Season> {
         this.seasonNum = seasonNum;
         this.episodes = new ArrayList<>();
         this.totalTime = new Time("00:00:00");
-        this.sortedByNumber = true; // an empty list is already in order
+        this.sortMode = SORT_NUMBER; // an empty list is already in order
     }
 
     /**
@@ -41,7 +49,7 @@ public class Season implements Comparable<Season> {
      *         (-(insertion point) - 1) when sorted by number, or -1 when not
      */
     private int findIndexByNumber(int epNum) {
-        if (sortedByNumber) {
+        if (sortMode == SORT_NUMBER) {
             // A temporary Episode is only used as the search key (compared by number)
             return Collections.binarySearch(episodes, new Episode("", epNum, new Time("00:00:00")));
         }
@@ -51,6 +59,30 @@ public class Season implements Comparable<Season> {
             }
         }
         return -1;
+    }
+
+    /**
+     * Sorts the episodes again using the current sort mode. Collections.sort is
+     * stable, so episodes that tie keep their relative order.
+     */
+    private void applySort() {
+        if (sortMode == SORT_TITLE) {
+            Collections.sort(episodes, new EpisodeTitleComparator());
+        } else if (sortMode == SORT_TIME) {
+            Collections.sort(episodes, new EpisodeTimeComparator());
+        } else {
+            Collections.sort(episodes);
+        }
+    }
+
+    /**
+     * Checks whether an episode number is already used in this season.
+     *
+     * @param epNum the episode number to look for
+     * @return true if an episode with that number exists
+     */
+    public boolean hasEpisodeNumber(int epNum) {
+        return findIndexByNumber(epNum) >= 0;
     }
 
     /**
@@ -88,9 +120,9 @@ public class Season implements Comparable<Season> {
 
     /**
      * Adds an unwatched episode (Menu 2 #4) and adds its length to the total time.
-     * Duplicate episode numbers are rejected. If the episodes are sorted by
-     * number the new episode is inserted in its place, otherwise it goes at the
-     * end so the last sorted order is kept.
+     * Duplicate episode numbers are rejected. The episode is placed so the
+     * last sorted order is kept: inserted in its place when sorted by number,
+     * otherwise added at the end and the list is sorted again the same way.
      *
      * @param title the episode title
      * @param epNum the episode number
@@ -104,11 +136,13 @@ public class Season implements Comparable<Season> {
         }
 
         Episode episode = new Episode(title, epNum, new Time(time));
-        if (sortedByNumber) {
+        if (sortMode == SORT_NUMBER) {
             // A negative result holds the position where the episode belongs
             episodes.add(-index - 1, episode);
         } else {
+            // Add at the end, then sort again so the last sorted order is kept
             episodes.add(episode);
+            applySort();
         }
         totalTime.add(episode.getLength());
         return true;
@@ -193,24 +227,26 @@ public class Season implements Comparable<Season> {
      * Sorts the episodes by episode number (uses Episode's compareTo).
      */
     public void sortByNumber() {
-        Collections.sort(episodes);
-        sortedByNumber = true;
+        sortMode = SORT_NUMBER;
+        applySort();
     }
 
     /**
      * Sorts the episodes by title, ignoring upper/lower case.
+     * Binary search by number no longer works afterwards.
      */
     public void sortByTitle() {
-        Collections.sort(episodes, new EpisodeTitleComparator());
-        sortedByNumber = false; // binary search by number no longer works
+        sortMode = SORT_TITLE;
+        applySort();
     }
 
     /**
      * Sorts the episodes by length, shortest first.
+     * Binary search by number no longer works afterwards.
      */
     public void sortByTime() {
-        Collections.sort(episodes, new EpisodeTimeComparator());
-        sortedByNumber = false; // binary search by number no longer works
+        sortMode = SORT_TIME;
+        applySort();
     }
 
     /**
@@ -269,12 +305,13 @@ public class Season implements Comparable<Season> {
     }
 
     /**
-     * Gets the total length of all the episodes in the season.
+     * Gets the total length of all the episodes in the season. A copy is
+     * returned so other classes cannot change the season's own total by accident.
      *
-     * @return the total time
+     * @return a copy of the total time
      */
     public Time getTotalTime() {
-        return totalTime;
+        return new Time(totalTime.toString());
     }
 
     /**
